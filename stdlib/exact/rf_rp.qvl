@@ -1,0 +1,30 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+*/
+
+// Random functions, random permutations, and the switching "lemma" (assumed)
+
+import stdlib.exact.rnd
+
+// random function
+RF(len, q) {
+  new (len=len, q=q, m=0, c=0) {
+    query(v) {c<q & c=c+1; (m[v] | m = m[v=>rnd(len)]); m[v] }
+  } as rf
+}
+
+// return a random bitstring of length eta that is not in the range of a map of bitstrings
+// when all possible bitstrings of length eta are in the map, the behavior is undefined
+static rndNotInRange(len : int, m : map) : bits
+
+// random permutation
+RP(len, q) {
+  new(len=len, q=q, m=0, c=0) {
+    query(v) {c<q & c=c+1; (m[v] | m = m[v=>rndNotInRange(len, m)]); m[v] }
+  } as rp
+}
+
+assume RP_RF_Switch(len, q) : RP(len, q) ~(q * q / 2^len) RF(len, q)
+
+

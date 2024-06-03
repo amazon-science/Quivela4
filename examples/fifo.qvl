@@ -1,0 +1,119 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+*/
+
+// A simple example that builds a FIFO channel from AEAD and a counter
+
+import stdlib.core.pair
+
+pure Z(a)
+axiom forall(x): x -> Z(x)
+axiom forall(x): Z(x) -> x
+axiom forall(x): Z(Z(x)) == Z(x)
+
+pure toBits(a)
+axiom forall(a): toBits(a) == a
+
+AEAD(e) {
+  new(e=e, d=0){
+    enc(a, m){m & c = (e.enc(a, Z(m))) & d = d[pair(a, c) => toBits(m)]; c}
+    dec(a, c) {d[pair(a, c)]}
+  }
+}
+
+ChC(n, e) {
+  new(n=n, e=e, s=0, r=0) {
+    send(m) {m & a = s; s = s+1; n.send(e.enc(a, m)); m}
+    rcv() {m = e.dec(r, n.rcv()) & r=r+1; m}
+  }
+}
+
+ChI(n) {
+  new(n=n, s=0, r=0, h=0) {
+    send(m){m & n.send(Z(m)); h = h[s => toBits(m)]; s = s + 1; m}
+    rcv(){n.rcv() & r < s & res = h[r]; r = r+1; res}
+  }
+}
+
+// Inlining AEAD into ChC produces the following class.
+ChC_AEAD(n, e) {
+  new ( n = n , s = 0 , r = 0 , e = e , d = 0 ) {
+    send ( m ) { m & a = s; s = s + 1; c = e.enc (a, (Z(m))); (c & d = d[pair(a, c) => toBits(m)]); n.send (c ) ; m }
+    rcv ( ) { m = d[pair(r, n . rcv ( ))] & r = r+1 ; m }
+  }
+}
+
+theorem chc_aead_inline(n, e) : ChC(n, AEAD(e)) ~(0) ChC_AEAD(n, e) {
+unfold
+symmetry
+unfold
+symmetry
+inline(e, d')
+bisim(frame() && fieldsEqualExcept(d, d') && left.d'=right.d)
+}
+
+//Inlining ChC_AEAD into ChI produces the following class
+ChI_ChC_AEAD(n, e) {
+  new ( n' = n , s' = 0 , r' = 0 , e' = e , d' = 0 , s = 0 , r = 0 , h = 0 ) {
+    send ( m ) { m & c = e' . enc ( s' , Z (  m ) ) ; ( c & d' = d' [ pair(s', c) =>  Z ( m ) ] ) ; s' = s' + 1 ; n' . send ( c ) ; h = h [ s => toBits(m) ] ; s = s + 1 ; m }
+    rcv ( ) { (d' [ pair(r', n' . rcv ( )) ] & r' = r' + 1; r < s & res = h [ r ] ; r = r + 1 ; res) }
+  }
+}
+
+theorem chi_aead_inline(n, e) : ChI(ChC_AEAD(n, e)) ~(0) ChI_ChC_AEAD(n, e) {
+unfold
+symmetry
+unfold
+symmetry
+inline(n', s', r', e', d')
+bisim()
+}
+
+theorem chc_aead_secure(n, e) : ChC(n, AEAD(e)) ~(0) ChI(ChC(n, AEAD(e))) {
+rewrite(chc_aead_inline)
+unfold
+symmetry
+rewrite(chc_aead_inline)
+rewrite(chi_aead_inline)
+unfold
+// remove duplicate counter used in send()
+~(0)
+... new ( n' = n , s = 0 , r' = 0 , e' = e , d' = 0, r = 0 , h = 0 )
+... send ( m ) { m & c = e' . enc ( s , Z (  m ) ) ; ( c & d' = d' [ pair(s, c) =>  Z ( m ) ] ) ; n' . send ( c ) ; h = h [ s => toBits(m) ] ; s = s + 1 ; m }
+{
+bisim(frame() && fieldsEqualExcept && left.s'=right.s)
+}
+// remove check for r<s in rcv, remove duplicate r counter
+~(0)
+... new ( n' = n , s = 0 , r = 0 , e' = e , d' = 0 , h = 0 )
+...rcv ( ) { d' [ pair(r, n' . rcv ( ))] & res = h [ r ] ; r = r + 1 ; res }
+{
+bisim(frame() && fieldsEqualExcept(r, r') && left.r==right.r &&
+          left.r == left.r' && (forall (x, y): (left.d')[pair(x, y)] -> (x < left.s)))
+}
+// store m in d' instead of Z(m)
+~(0)
+... send ( m ) { m & c = e' . enc ( s , Z (  m ) ) ; ( c & d' = d' [ pair(s, c) =>  toBits(m) ] ) ; n' . send ( c ) ; h = h [ s => toBits(m) ] ; s = s + 1 ; m }
+{
+bisim(frame() && fieldsEqualExcept(d')
+&& (forall (a) : isBits(left.d'[a])) &&  (forall (a) : isBits(right.d'[a]))
+&& (forall (a): left.d'[a] -> right.d'[a]) && (forall (a): right.d'[a] -> left.d'[a])
+)
+}
+// remove h
+~(0)
+... new ( n' = n , s = 0 , r = 0 , e' = e , d' = 0 )
+... send ( m ) { m & c = e' . enc ( s , Z (  m ) ) ; ( c & d' = d' [ pair(s, c) =>  toBits(m) ] ) ; n' . send ( c ) ; s = s + 1 ; m }
+...rcv ( ) { res = d' [ pair(r, n' . rcv ( ))] & r = r + 1 ; res }
+{
+bisim(frame() && fieldsEqualExcept
+&& (forall (a, b): (left.d')[pair(a, b)] -> a < left.s)
+&& (forall(a, b): left.d'[pair(a, b)] -> left.d'[pair(a, b)] = left.h[a])
+)
+}
+
+bisim(frame() && fieldsEqualExcept && left.n'=right.n && left.e'=right.e && left.d'=right.d)
+
+}
+

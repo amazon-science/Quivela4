@@ -1,0 +1,102 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+*/
+
+import stdlib.asymptotic.core
+import stdlib.core.pair
+
+// Theory of random sampling in asymptotic setting
+
+// A random bitstring
+static rnd()
+
+// collisions on random values are unlikely
+RndCollision0() {
+  new(m=0) {
+    sample() {x = rnd(); bad = m[x]; m = m[x => 1]; pair(x, bad)}
+  }
+}
+
+RndCollision1() {
+  new() {
+    sample() {pair(rnd(), 0)}
+  }
+}
+
+assume rndNoCollision() : RndCollision0() ~(negligible_if_efficient(@)) RndCollision1()
+
+theorem rndNoCollision_r() : RndCollision1() ~(negligible_if_efficient(@)) RndCollision0() {
+  symmetry
+  rewrite(rndNoCollision)
+}
+
+// lazy/eager sampling
+LazySampler() {
+  new(m=0) {
+    eager(x) {m = m[x => 1]; 1}
+    lazy(x) {m[x] & m = m[x => 0]; rnd()}
+  }
+}
+
+EagerSampler() {
+  new(m=0) {
+    eager(x) {m = m[x => pair(1, rnd())]; 1}
+    lazy(x) {m[x] & y = snd(m[x]); m = m[x => 0]; y}
+  }
+}
+
+assume eagerSamplingEquiv() : LazySampler() ~(0) EagerSampler()
+theorem lazySamplingEquiv() : EagerSampler() ~(0) LazySampler() {
+  symmetry
+  rewrite(eagerSamplingEquiv)
+}
+
+// An invertible sampling argument---essentially states that you can invert a random function, because collisions are unlikely
+RndInvert0() {
+  new(mi=0) {
+    query(x) { y = rnd(); c = mi[y]; mi = mi[y => pair(1, x)]; pair(y, c)}
+    queryInverse(y) {mi[y]}
+  }
+}
+RndInvert1() {
+  new(mi=0) {
+    query(x) { y = rnd(); mi = mi[y => pair(1, x)]; pair(y, 0)}
+    queryInverse(y) {mi[y]}
+  }
+}
+
+RndInvert0_1(r) {
+  new(r=r, mi=0) {
+      query(x) { p = r.sample(); y = fst(p); c = (snd(p) & mi[y]); mi = mi[y => pair(1, x)]; pair(y, c)}
+      queryInverse(y) {mi[y]}
+    }
+}
+
+theorem RndInvert_0_1_equiv() : RndInvert0() ~(0) RndInvert0_1(RndCollision0()) {
+  unfold
+  symmetry
+  unfold
+  inline(m', bad')
+  symmetry
+  bisim(left.mi==right.mi
+    , forall (x): right.m'[x] -> right.mi[x]
+    , forall (x) : right.mi[x] -> right.m'[x]
+  )
+}
+
+theorem RndInvert_equiv() : RndInvert0() ~(negligible_if_efficient ( @ ( RndInvert0_1 ( [] ) ))) RndInvert1() {
+  rewrite(RndInvert_0_1_equiv)
+  rewrite(rndNoCollision)
+  unfold
+  inline
+  symmetry
+  unfold
+  symmetry
+  bisim()
+}
+
+theorem RndInvert_equiv_r() : RndInvert1() ~(negligible_if_efficient ( @ ( RndInvert0_1 ( [] ) ))) RndInvert0() {
+  symmetry
+  rewrite(RndInvert_equiv)
+}

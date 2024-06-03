@@ -1,0 +1,17 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+*/
+
+// lists and operations on lists
+pure listAdd(s, e)
+pure listSize(s) : int
+pure listElementAt(s, n:int)
+pure listPermute(p, s)
+
+pure listDeDup(s)
+pure listNoDup(s)
+
+axiom listNoDup(0)
+axiom forall (ls) : listNoDup(listDeDup(ls))
+axiom forall (p, ls) : listNoDup(ls) -> listNoDup(listPermute(p, ls))

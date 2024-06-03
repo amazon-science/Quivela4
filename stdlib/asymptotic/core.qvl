@@ -1,0 +1,22 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+*/
+
+// Core asymptotic definitions
+
+// A function used to express that some expression is efficient (e.g. PPT)
+// In typical assumptions, the expression will be the environment when given access to some object
+pure efficient(e : expr)
+
+// A small value use in asymptotic assumptions and proofs
+const epsilon : real
+axiom 0 <= epsilon
+
+// A predicate that states that some value is negligible in the security parameter when the supplied expression is efficient
+pure negligible_if_efficient(e  : expr) : real
+axiom forall(e : expr) : 0 <= negligible_if_efficient(e)
+
+axiom forall(e : expr) :
+    efficient(e) ->
+    negligible_if_efficient(e) <= epsilon

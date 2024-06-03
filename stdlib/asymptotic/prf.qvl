@@ -1,0 +1,23 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+*/
+
+import stdlib.asymptotic.rnd
+
+// function f which is assumed to be a PRF
+pure f(k, x)
+
+F(k) {
+  new(k=k) {
+    query(v) {f(k, v)}
+  }
+}
+
+RF() {
+  new(m=0) {
+    query(v) {(m[v] | x=rnd(); m = m[v=>pair(1, x)]); snd(m[v]) }
+  }
+}
+// Assume that the F functionality can only be distinguished by a random function with negligible probability, assuming the distinguishing environment is efficient.
+assume F_RF_equiv() : F(rnd()) ~(negligible_if_efficient(@)) RF()

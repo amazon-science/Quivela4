@@ -1,0 +1,8 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+*/
+
+// xor for bitstrings
+// Input values are truncated/padded to the specified length
+pure xor(len : int, a : bits, b : bits)

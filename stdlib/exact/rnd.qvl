@@ -1,0 +1,19 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+*/
+
+import stdlib.core.bitstring
+
+// Theory of random sampling in exact setting
+
+// A random bitstring of specified length. A negative length results in an empty bitstring
+static rnd(length:int) : bits
+
+// rnd() has no side effects
+assume RndElim(len : int) : (rnd(len) ; 0) ~(0) 0
+
+// one-time pad with xor
+assume RndOTP_l(len: int, x) : xor(len, rnd(len), x) ~(0) rnd(len)
+assume RndOTP_r(len : int, x) : xor(len, x, rnd(len)) ~(0) rnd(len)
+

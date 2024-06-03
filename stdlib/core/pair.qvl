@@ -1,0 +1,11 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+*/
+
+pure pair(x, y)
+pure fst(p)
+pure snd(p)
+axiom forall (x,y): fst(pair(x, y)) == x
+axiom forall (x,y): snd(pair(x, y)) == y
+axiom forall (x, y) : pair(x, y)

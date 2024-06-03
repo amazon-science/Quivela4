@@ -1,0 +1,467 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+*/
+
+Package com.amazon.quivela.parser;
+
+Helpers
+ alphabetic = [['a' .. 'z'] + ['A' .. 'Z']];
+  numeric = ['0' .. '9'];
+  underscore = '_';
+  id_char = alphabetic | numeric | underscore | ''' ;
+  //dot = '.';
+  //dot_id_char = id_char | dot;
+  cr = 13;
+  lf = 10;
+  all = [0 .. 0xFFFF];
+  eol = cr lf | cr | lf;
+  not_cr_lf = [all - [cr + lf]];
+  not_star = [all - '*'];
+  not_star_slash = [not_star - '/'];
+  short_comment = '//' not_cr_lf* eol;
+  long_comment = '/*' not_star* '*'+ (not_star_slash not_star* '*'+)* '/';
+  comment = short_comment | long_comment;
+
+States
+    tac;
+
+Tokens
+ fields_equal_except = 'fieldsEqualExcept';
+ fields_equal_positional = 'fieldsEqualPositional';
+ expr_token= 'expr';
+ import = 'import';
+ int = 'int';
+ bits = 'bits';
+ isbits = 'isBits';
+ real = 'real';
+ map = 'map';
+ checkpoint = 'checkpoint';
+ invariant = 'invariant';
+ left_or_right = 'left' || 'right';
+ trivial_heap_expr = 'heap';
+ is = 'is';
+ invalid = 'invalid';
+ ref = 'ref';
+ as = 'as';
+ assert = 'assert';
+ frame = 'frame';
+ obj_eq = 'obj_eq';
+ independentof = 'independentof';
+ class_id = 'class';
+ forall = 'forall';
+ exists = 'exists';
+ axiom = 'axiom';
+ assume = 'assume';
+ pure = 'pure';
+ static = 'static';
+ thm = 'theorem';
+ const = 'const';
+ unfold = 'unfold';
+ inline = 'inline';
+ rewrite = 'rewrite';
+ symmetry = 'symmetry';
+ admit = 'admit';
+ bisim = 'bisim';
+ auto = 'auto';
+ trivial = 'trivial';
+ hybrid = 'hybrid';
+ //set = 'set';
+ let = 'let';
+ new = 'new';
+ l_par = '(';
+ r_par = ')';
+ l_sqr = '[';
+ r_sqr = ']';
+ l_curl = '{';
+ r_curl = '}';
+ question = '?';
+ dot = '.';
+ dotdotdot = '...';
+ bang = '!';
+ colon = ':';
+ comma = ',';
+ eq_op = '=';
+ map_assign_op = '=>';
+ logic_op = '|' | '&';
+ prop_logic_op = '||' | '&&' | '->';
+ arrow = '->';
+ semicolon = ';';
+ rel_op = '<' |  '>' | '<=' |  '>=' | '==' | '!=' ;
+ sum_op = '+' | '-';
+ product_op = '*' | '/' | '%';
+ exponent_op = '^';
+ plusplus = '++';
+ twiddle = '~';
+ env_symbol = '@';
+ hole = '[]';
+ blank = (' ' | 13 | 10)+;
+ bool_literal = 'true' | 'false';
+ numeric_literal = numeric+;
+ identifier = alphabetic id_char*;
+ comment=comment;
+
+Ignored Tokens
+ blank,
+ comment;
+
+Productions
+
+ development =
+  definition*;
+
+ definition =
+  {import_stmt} import_stmt |
+  {axiom_decl} axiom_decl |
+  {func_decl} func_decl |
+  {const_decl} const_decl |
+  {theorem} theorem |
+  {assumption} assumption;
+
+ import_stmt =
+  import module_identifier;
+
+ module_identifier =
+  identifier module_identifier_tl*;
+
+ module_identifier_tl = dot identifier;
+
+ type_expr =
+  {bits} bits |
+  {int} int |
+  {real} real |
+  {map} map |
+  {expr} expr_token ;
+
+ type_suffix =
+  colon type_expr;
+
+ identifier_and_type =
+  identifier type_suffix?;
+
+ const_decl =
+  const identifier_and_type;
+
+ fact_decl =
+  identifier formal_params_list colon [left_expr]:expr twiddle l_par bounds_expr r_par [right_expr]:expr;
+
+ theorem =
+  thm fact_decl proof;
+
+ proof = l_curl tactic* r_curl;
+
+ assumption =
+   assume fact_decl;
+
+ new_rewrite_term =
+    {new} new new_params_list |
+    {method} method_def;
+
+ new_rewrite_expr =
+   dotdotdot new_rewrite_term new_rewrite_expr?;
+
+ bisim_props =
+  bisim_prop bisim_prop_tl*;
+
+ bisim_prop_tl =
+  comma bisim_prop;
+
+ bisim_prop =
+  prop bisim_prop_scope_clause?;
+
+ bisim_prop_scope_clause =
+  l_curl bisim_prop_scopes r_curl;
+
+ bisim_prop_scopes =
+  bisim_prop_scope bisim_prop_scopes_tl*;
+
+ bisim_prop_scopes_tl =
+  comma bisim_prop_scope;
+
+ bisim_prop_scope =
+  {invariant} invariant |
+  {checkpoint} checkpoint l_par [left]:identifier comma [right]:identifier r_par;
+
+ subgoal_expr =
+   {expr} expr |
+   {new_rewrite} new_rewrite_expr;
+
+ tactic =
+  {unfold} unfold identifier_list? |
+  {inline} inline identifier_list? |
+  {symmetry} symmetry |
+  {admit} admit |
+  {bisim} bisim l_par bisim_props? r_par |
+  {rewrite} rewrite l_par identifier r_par |
+  {trivial} trivial |
+  {auto} auto |
+  {hybrid} hybrid l_par [start]:bounds_expr [comma0]:comma [end]:bounds_expr [comma1]:comma [step_fact]:identifier r_par |
+  {subgoal} twiddle l_par bounds_expr r_par subgoal_expr proof;
+
+ identifier_list = l_par identifiers r_par;
+
+ identifiers = identifier identifiers_tl*;
+
+ identifiers_tl = comma identifier;
+
+ proof_list = l_sqr proofs r_sqr;
+
+ proofs = proof proof_tl*;
+
+ proof_tl = comma proof;
+
+ axiom_decl =
+  axiom prop;
+
+ func_modifier =
+  {pure} pure |
+  {static} static;
+
+ func_decl =
+  func_modifier* identifier formal_params_list type_suffix? func_body?;
+
+ func_body =
+  l_curl expr r_curl;
+
+ formal_params_list =
+  l_par formal_params? r_par;
+
+ method_list =
+  l_curl method_def* r_curl;
+
+ method_def =
+   identifier formal_params_list func_body;
+
+ new_expr =
+  new new_params_list method_list class_ident?;
+
+ class_ident =
+  as identifier;
+
+ new_params_list =
+   l_par new_params? r_par;
+
+ new_params =
+   new_param new_params_tl*;
+
+ new_param =
+   identifier eq_op expr;
+
+ new_params_tl =
+   comma new_param;
+
+ formal_param =
+   identifier_and_type;
+
+ formal_params =
+   formal_param formal_params_tl*;
+
+ formal_params_tl =
+  comma formal_param;
+
+ exprs =
+  expr exprs_tl*;
+
+ exprs_tl =
+  comma expr;
+
+ prop =
+   forall_exists_prop;
+
+ forall_exists_prop =
+   {logic} logic_prop |
+   {forall_exists} forall_exists formal_params_list colon [prop]:logic_prop;
+
+ forall_exists =
+   {forall} forall |
+   {exists} exists;
+
+ logic_prop =
+   {bool} bool_prop |
+   {logic_op} [left]:bool_prop prop_logic_op [right]:logic_prop |
+   {not} bang bool_prop ;
+
+ prop_rel_op =
+   {rel_op} rel_op |
+   {eq} eq_op;
+
+ bool_prop =
+   {rel_op} [left]:arith_prop prop_rel_op [right]:bool_prop |
+   {arith} arith_prop;
+
+
+ arith_prop =
+  sum_prop;
+
+ sum_prop =
+  {product} product_prop |
+  {sum} [left]:product_prop sum_op [right]:sum_prop;
+
+ product_prop =
+  {primary} primary_prop |
+  {product} [left]:primary_prop product_op [right]:product_prop;
+
+ primary_prop =
+  {lookup} identifier |
+  {literal} literal |
+  {map_lookup} [map]:primary_prop l_sqr [index]:prop r_sqr |
+  {map_update} [map]:primary_prop l_sqr [index]:prop map_assign_op [value]:prop r_sqr |
+  {fields_equal_except} fields_equal_except identifier_list? |
+  {fields_equal_positional} fields_equal_positional |
+  {func} func_prop |
+  {frame} frame_prop |
+  {frame_heap} frame_heap_prop |
+  {frame_all} frame_all_prop |
+  {obj_eq} obj_eq_prop |
+  {object_lookup} object_prop dot identifier |
+  {object_is} object_prop is class_id_prop |
+  {independence} independentof l_par [heap]:heap_prop [c1]:comma [left]:prop [c2]:comma [right]:prop r_par |
+  {env} env_symbol env_param* |
+  {isbits} isbits l_par prop r_par |
+  {tobits} bits l_par prop r_par |
+  {quant} l_par prop r_par;
+
+ class_id_prop =
+   {class_id_invalid} invalid |
+   {class_id_identifier} identifier;
+
+ obj_eq_prop =
+  obj_eq l_par [left]:object_prop comma [right]:object_prop r_par;
+
+ object_prop =
+  {obj_lr} obj_lr |
+  {from_heap} heap_prop l_sqr prop r_sqr;
+
+ obj_lr = left_or_right;
+
+ heap_prop =
+  {heap_lr} heap_lr |
+  {from_heap} heap_prop l_curl prop r_curl;
+
+ heap_lr = left_or_right;
+
+ frame_heap_prop =
+  frame l_par [left_heap]:heap_prop [c1]:comma [right_heap]:heap_prop [c2]:comma [left]:prop [c3]:comma [right]:prop r_par;
+
+ frame_prop =
+  frame l_par [left]:prop comma [right]:prop r_par;
+
+ frame_all_prop =
+   frame l_par r_par;
+
+ func_prop =
+  identifier actual_params_prop;
+
+ actual_params_prop =
+   l_par props? r_par;
+
+ props =
+   prop props_tl*;
+
+ props_tl =
+   comma prop;
+
+ expr =
+   logic_expr;
+
+ logic_expr =
+  {assign_expr} assign_expr |
+  {logic_op} [left]:assign_expr logic_op [right]:logic_expr |
+  {sequence} [left]:assign_expr semicolon [right]:logic_expr |
+  {ternary_op} [test]:assign_expr question [ifso]:logic_expr colon [ifnot]:logic_expr;
+
+ assign_expr =
+   {assign} identifier assign_value |
+   {bool} bool_expr;
+
+ assign_value =
+   {assign} eq_op bool_expr;
+
+ bool_expr =
+  {arith_expr} arith_expr |
+  {rel_op} arith_expr rel_op bool_expr |
+  {not} bang bool_expr;
+
+ arith_expr =
+  sum_expr;
+
+ sum_expr =
+  {product} product_expr |
+  {sum} [left]:product_expr sum_op [right]:sum_expr;
+
+ product_expr =
+  {primary_expr} primary_expr |
+  {product} [left]:primary_expr product_op [right]:product_expr;
+
+ expr_label =
+  l_curl identifier r_curl;
+
+ primary_expr =
+  {hole} hole |
+  {dotdotdot} dotdotdot |
+  {lookup} identifier |
+  {ref} ref l_par expr r_par |
+  {map_lookup} [map]:primary_expr l_sqr [index]:primary_expr r_sqr |
+  {map_update} [map]:primary_expr l_sqr [index]:expr map_assign_op [value]:expr r_sqr |
+  {invoke_expr} invoke_expr |
+  {func_expr} func_expr |
+  {new_expr} new_expr |
+  {literal} literal |
+  {assert} assert l_par prop r_par |
+  {admit} admit l_par prop r_par |
+  {tobits} bits l_par expr r_par |
+  {quant} expr_label? l_par expr r_par;
+
+ actual_params =
+  l_par exprs? r_par;
+
+ invoke_expr =
+  primary_expr dot invoke_class? identifier actual_params;
+
+ invoke_class =
+  l_curl identifiers r_curl;
+
+ func_expr =
+  identifier actual_params;
+
+ literal =
+  {numeric} numeric_literal |
+  {bool} bool_literal;
+
+
+ bounds_expr =
+  sum_bounds_expr;
+
+ sum_bounds_expr =
+  {product_bounds_expr} product_bounds_expr |
+  {bin_op} [left]:product_bounds_expr sum_op [right]:sum_bounds_expr;
+
+ product_bounds_expr =
+   {exponent_bounds_expr} exponent_bounds_expr |
+   {bin_op} [left]:exponent_bounds_expr product_op [right]:product_bounds_expr;
+
+ exponent_bounds_expr =
+   {primary_bounds_expr} primary_bounds_expr |
+   {bin_op} [left]:primary_bounds_expr exponent_op [right]:exponent_bounds_expr;
+
+ primary_bounds_expr =
+  {env} env_symbol env_param* |
+  {lookup} identifier |
+  {func_expr} func_bounds_expr |
+  {literal} literal |
+  {quant} l_par bounds_expr r_par;
+
+ func_bounds_expr =
+  identifier bounds_actual_params;
+
+ bounds_actual_params =
+   l_par bounds_exprs? r_par;
+
+ bounds_exprs =
+  bounds_expr bounds_exprs_tl*;
+
+ bounds_exprs_tl =
+  comma bounds_expr;
+
+ env_param =
+  l_par expr r_par;

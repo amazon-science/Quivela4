@@ -1,0 +1,299 @@
+/*
+ * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+*/
+
+// Security of a DRBG built from a block cipher and a counter
+// This DRBG models CTR_DRBG from SP 800-90A
+
+import stdlib.exact.rf_rp
+
+// size of cipher blocks is eta
+const eta : int
+axiom 0 < eta
+
+pure cipher(k : bits, v : bits) : bits
+BlockCipher(q, k) {
+  new (q=q, k=k, c=0) {
+    query(v) {c<q & c=c+1; cipher(k, v)}
+  } as ciph
+}
+
+const q : int
+axiom 0 <= q
+
+const two_to_eta : int
+const M : int
+
+axiom 0 <= M
+axiom M < two_to_eta - 2
+
+pure cipher_prp_advantage(e : expr, q : int) : real
+axiom forall (e: expr, q : int) : cipher_prp_advantage(e, q) >= 0
+
+assume Cipher_PRP(q): BlockCipher(q, rnd(eta)) ~(cipher_prp_advantage(@, q)) RP(eta, q)
+
+// We need factory forms of the Cipher->RP->RF assumptions to allow replacing objects that are constructed in method bodies
+RF_Factory(q, m) {
+  new(q=q, m=m, c=0) {
+    construct() {c<m & c=c+1; RF(eta, q)}
+  } as rff
+}
+
+RP_Factory(q, m) {
+  new(q=q, m=m, c=0) {
+    construct() {c<m & c=c+1; RP(eta, q)}
+  } as rpf
+}
+
+BlockCipherFactory(q, m) {
+  new(q=q, m=m, c=0) {
+    construct() {c<m & c=c+1; BlockCipher(q, rnd(eta))}
+  } as bcf
+}
+
+assume Cipher_PRP_Factory(q, m): BlockCipherFactory(q, m) ~(m * cipher_prp_advantage(@, q)) RP_Factory(q, m)
+assume RP_RF_Switch_Factory(q, m): RP_Factory(q, m) ~(m * q * q / 2^eta) RF_Factory(q, m)
+
+
+// a + b mod two_to_eta
+pure add_mod(a : int, b : int) : int
+axiom forall (a : int, b : int, c : int) : a >= 0 -> a < two_to_eta -> b >= 0 -> b < two_to_eta -> a != b -> add_mod(a, c) != add_mod (b, c)
+
+// DRBG is modeled using an update() and generate() function to allow the environment to choose how many blocks to produce
+// A single call to the actual DRBG generate corresponds to a number of generate() calls followed by an update()
+// Start with definition that does not include instantiate
+CTR_DRBG_k(k, o) {
+  new(cq=0, ctr=M, f=BlockCipher(M+2, k), offset=o) {
+    update() {cq<q & cq=cq+1; k=f.query(add_mod(ctr, offset)); offset=f.query(add_mod(ctr+1, offset)); f=BlockCipher(M+2, k); ctr=0; 1}
+    generate() {ctr<M & r = f.query(add_mod(ctr, offset)); ctr=ctr+1; r}
+  }
+}
+
+CTR_DRBG() {
+  // assume we start with two blocks of random data
+  p1=rnd(eta); p2=rnd(eta);
+  // Model of the CTR_DRBG instantiate function
+  k=xor(eta, cipher(0, 0), p1);
+  v=xor(eta, cipher(0, 1), p2);
+  CTR_DRBG_k(k, v)
+}
+
+theorem CTR_DRBG_Instantiate_equiv() : CTR_DRBG() ~(0) CTR_DRBG_k(rnd(eta), rnd(eta)) {
+  unfold
+  ~(0) CTR_DRBG_k ( xor ( eta, cipher ( 0 , 0 ) , rnd(eta) ) , xor ( eta, cipher ( 0 , 1 ) , rnd(eta) ) )
+  {
+    auto
+  }
+  rewrite(RndOTP_r)
+}
+
+// Ideal functionality returns a random block for each generate() call, and checks that not too many generate() and update() calls have occurred
+DRBG_I() {
+  new(cq=0, ctr=M) {
+    update() {cq<q & cq=cq+1; ctr=0; 1}
+    generate() {ctr<M & ctr=ctr+1; rnd(eta)}
+  }
+}
+
+const cipher_adv : real
+axiom 0 <= cipher_adv
+
+axiom cipher_prp_advantage ( @ (
+              new ( cq = 0 , ctr = M , f = ( [] ), offset=rnd(eta) ) {
+                  update ( ) { cq < q & cq=cq+1; k=f.query(add_mod(ctr, offset)); offset=f.query(add_mod(ctr+1, offset)) ; f = BlockCipher ( M + 2 , k ) ; ctr = 0 ; 1 }
+                  generate ( ) { ctr < M & r = f.query(add_mod(ctr, offset)); ctr=ctr+1 ; r } } ) ,
+               M + 2 ) <= cipher_adv
+
+
+axiom forall (h): cipher_prp_advantage ( @ (
+                             new ( h = h , cq = 0 , ctr = M , f = RF ( eta, M + 2 ), offset=rnd(eta), fact= [] ) {
+                                 update ( ) { cq < q &
+                                         ( cq > h & k=f.query(add_mod ( ctr, offset )); offset=f.query(add_mod ( ctr + 1 , offset )); f = BlockCipher ( M + 2 , k)) ;
+                                         ( cq == h & f = fact.construct(); offset=rnd(eta) ) ;
+                                         ( cq < h & f = RF ( eta, M + 2 ); offset=rnd(eta) ) ;
+                                         cq=cq+1; ctr = 0 ; 1 }
+                                 generate ( ) { ctr < M & r = f . query ( add_mod (ctr, offset ) ) ; ctr=ctr+1; r } } ) ,
+                             M + 2 ) <= cipher_adv
+
+
+CTR_DRBG_H(h) {
+  new(h=h, cq=0, ctr=M, f=RF(eta, M+2), offset=rnd(eta)) {
+    update() {cq<q &
+        (cq >= h & k=f.query(add_mod(ctr, offset)); offset=f.query(add_mod(ctr+1, offset)); f=BlockCipher(M+2,k));
+        (cq < h & f=RF(eta, M+2); offset=rnd(eta));
+        cq=cq+1; ctr=0; 1}
+    generate() {ctr<M & r = f.query(add_mod(ctr, offset)); ctr=ctr+1; r}
+  }
+}
+
+theorem CTR_DRBG_q() : CTR_DRBG_H(q) ~(0) DRBG_I() {
+  unfold
+  ~(0)
+    ...update() {cq<q & f=RF(eta, M+2); offset=rnd(eta); cq=cq+1; ctr=0; 1}
+  {
+    bisim(frame() && fieldsEqualExcept && right.h=q && right.cq >=0)
+  }
+  ~(0)
+    ...generate() {ctr<M & r = f.{rf}query(add_mod(ctr, offset)); ctr=ctr+1; r}
+  {
+    trivial
+  }
+  ~(0)
+    ...generate() {ctr<M & r = rnd(eta); ctr=ctr+1; r}
+  {
+    bisim(left.cq==right.cq && left.ctr==right.ctr && left.offset==right.offset,
+        left[left.f].q==right[right.f].q,
+        left[left.f] is rf && right[right.f] is rf,
+        0 <= left.ctr && left.ctr<=M && left[left.f].len==eta && left[left.f].q==M+2 && left.ctr >= left[left.f].c && right.ctr >= right[right.f].c,
+        (forall (x:int) : x >= left.ctr -> x < two_to_eta -> ((!left[left.f].m[add_mod(x, left.offset)]) && (!right[right.f].m[add_mod(x, left.offset)])))
+        )
+  }
+  ~(0)
+    ...new(cq=0, ctr=M, f=RF(eta, M+2), offset=(rnd(eta); 0))
+    ...update() {cq<q & f=RF(eta, M+2); offset=((rnd(eta); 0)); cq=cq+1; ctr=0; 1}
+  {
+    bisim(frame() && left.cq==right.cq && left.f==right.f && left.ctr==right.ctr)
+  }
+  rewrite(RndElim)
+  symmetry
+  unfold
+  bisim(left.cq==right.cq && left.ctr==right.ctr)
+}
+
+theorem CTR_DRBG_0() :
+    CTR_DRBG() ~
+    (cipher_adv + ( ( M + 2 ) * ( M + 2 ) / 2 ^ eta ))
+    CTR_DRBG_H(0) {
+
+  rewrite(CTR_DRBG_Instantiate_equiv)
+  unfold
+  ~(0)
+    ...new(cq=0, ctr=M, f=(BlockCipher(M+2, rnd(eta))), offset=rnd(eta))
+  {
+    bisim()
+  }
+  rewrite(Cipher_PRP)
+  rewrite(RP_RF_Switch)
+  symmetry
+  unfold
+  ~(0)
+      ...update() {cq<q & cq=cq+1;
+                (k=f.query(add_mod(ctr, offset)); offset=f.query(add_mod(ctr+1, offset)); f=BlockCipher(M+2,k));
+                ctr=0; 1}
+  {
+    bisim(left.h==0 && left.cq >= 0 && frame() && fieldsEqualExcept)
+  }
+  bisim(frame() && fieldsEqualExcept)
+}
+
+theorem CTR_DRBG_adjacent(h : int) :
+    CTR_DRBG_H(h) ~
+    (cipher_adv + ( ( M + 2 ) * ( M + 2 ) / 2 ^ eta ))
+    CTR_DRBG_H(h + 1) {
+  unfold
+  symmetry
+  unfold
+  symmetry
+  // Add inlining hints
+  ~(0)
+        ...update() {cq<q &
+                   (cq >= h & k=f.{rf, ciph}query(add_mod(ctr, offset)); offset=f.{rf,ciph}query(add_mod(ctr+1, offset)); f=BlockCipher(M+2,k));
+                   (cq < h & f=RF(eta, M+2); offset=rnd(eta));
+                   cq=cq+1; ctr=0; 1}
+        ...generate() {ctr<M & r = f.{rf, ciph}query(add_mod(ctr, offset)); ctr=ctr+1; r}
+  {}
+  ~(0)
+      ...update() {cq<q &
+                 (cq > h & k=f.{rf, ciph}query(add_mod(ctr, offset)); offset=f.{rf, ciph}query(add_mod(ctr+1, offset)); f=BlockCipher(M+2,k));
+                 (cq == h & f=BlockCipher(M+2,rnd(eta)); offset=rnd(eta));
+                 (cq < h & f=RF(eta, M+2); offset=rnd(eta));
+                 cq=cq+1; ctr=0; 1}
+  {
+    bisim(
+            left.h=right.h && left.cq=right.cq && left.ctr=right.ctr && left.offset=right.offset,
+            left.ctr <= M && left.ctr >= 0,
+            left.cq >= 0,
+            (left.cq<=left.h || left.cq==0)-> left[left.f] is rf,
+            ((left[left.f] is rf && right[right.f] is rf) || (left[left.f] is ciph && right[right.f] is ciph)),
+            left[left.f].c==right[right.f].c && left[left.f].q==right[right.f].q && left[left.f].q==M+2 && left.ctr>=left[left.f].c,
+            (left[left.f] is ciph -> (left[left.f].k==right[right.f].k)),
+            (left[left.f] is rf -> left[left.f].len==eta && right[right.f].len==eta),
+            (left[left.f] is rf -> (forall (x:int) : x >= left.ctr -> x < two_to_eta -> ((!left[left.f].m[add_mod(x, left.offset)]) && (!right[right.f].m[add_mod(x, right.offset)]))))
+
+            )
+    }
+    // remove inlineing hints
+  ~(0)
+          ...update() {cq<q &
+                     (cq > h & k=f.query(add_mod(ctr, offset)); offset=f.query(add_mod(ctr+1, offset)); f=BlockCipher(M+2,k));
+                     (cq == h & f=BlockCipher(M+2,rnd(eta)); offset=rnd(eta));
+                     (cq < h & f=RF(eta, M+2); offset=rnd(eta));
+                     cq=cq+1; ctr=0; 1}
+          ...generate() {ctr<M & r = f.query(add_mod(ctr, offset)); ctr=ctr+1; r}
+  {}
+  // Use BlockCipherFactory
+  ~(0)
+        ...new(h=h, cq=0, ctr=M, f=RF(eta, M+2), offset=rnd(eta), fact=BlockCipherFactory(M+2, 1))
+        ...update() {cq<q &
+                         (cq > h & k=f.query(add_mod(ctr, offset)); offset=f.query(add_mod(ctr+1, offset)); f=BlockCipher(M+2,k));
+                         (cq == h & f=fact.construct(); offset=rnd(eta));
+                         (cq < h & f=RF(eta, M+2); offset=rnd(eta));
+                         cq=cq+1; ctr=0; 1}
+  {
+     symmetry
+     unfold(BlockCipherFactory)
+     inline(bcf_q, bcf_m, bcf_c)
+      ~(0)
+          ...new ( h = h, cq = 0 , ctr = M , f = RF ( eta, M + 2 ) , offset = rnd (eta))
+          ...update ( ) { cq < q &
+           ( cq > h & k = f .query ( add_mod ( ctr , offset ) ) ; offset = f .query ( add_mod ( ctr + 1 , offset ) ) ; f = BlockCipher ( M + 2 , k ) ) ;
+           ( cq == h & f = BlockCipher ( M + 2, rnd (eta ) )  ; offset = rnd (eta) ) ;
+           ( cq < h & f = RF (eta, M + 2 ) ; offset = rnd (eta) ) ;
+           cq = cq + 1 ; ctr = 0 ; 1
+           }
+      {
+      bisim(frame() && fieldsEqualExcept,
+        left.bcf_q=M+2 && left.bcf_m = 1 && ((left.cq<=left.h)->left.bcf_c=0))
+      }
+  }
+
+  rewrite(Cipher_PRP_Factory)
+  rewrite(RP_RF_Switch_Factory)
+  unfold(RF_Factory)
+  inline(rff_q, rff_m, rff_c)
+  ~(0)
+  ...new ( h = h , cq = 0 , ctr = M , f = RF (eta, M + 2 ) , offset = rnd (eta))
+  ...update ( ) { cq < q &
+        ( cq > h & k = f . query ( add_mod ( ctr , offset ) ) ; offset = f . query ( add_mod ( ctr + 1 , offset ) ) ; f = BlockCipher ( M + 2 , k ) ) ;
+        ( cq == h & f = (RF (eta, M+2 ) ) ; offset = rnd (eta) ) ;
+        ( cq < h & f = RF (eta, M + 2 ) ; offset = rnd (eta ) ) ; cq = cq + 1 ; ctr = 0 ; 1 }
+   {
+   bisim(frame() && fieldsEqualExcept,
+   left.rff_q=M+2 && left.rff_m = 1 && ((left.cq<=left.h) -> left.rff_c=0))
+   }
+  ~(0)
+    ...update() {cq<q &
+                    (cq > h & k=f.query(add_mod(ctr, offset)); offset=f.query(add_mod(ctr+1, offset)); f=BlockCipher(M+2,k));
+                    (cq <= h & f=RF(eta, M+2); offset=rnd(eta));
+                    cq=cq+1; ctr=0; 1}
+  {
+    bisim()
+  }
+  bisim(frame() && fieldsEqualExcept(h),
+    left.h+1=right.h)
+
+}
+
+theorem CTR_DRBG_secure() :
+    CTR_DRBG() ~
+    (
+     (q+1)*( ( M + 2 ) * ( M + 2 ) / 2 ^ eta ) +
+     (q+1)*cipher_adv
+    )
+    DRBG_I() {
+
+  rewrite(CTR_DRBG_0)
+  hybrid(0, q, CTR_DRBG_adjacent)
+  rewrite(CTR_DRBG_q)
+}
